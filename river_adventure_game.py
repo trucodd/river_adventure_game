@@ -25,12 +25,13 @@ GREEN = (0, 255, 0)
 # Game variables
 BOAT_WIDTH = 70
 BOAT_HEIGHT = 100
-STONE_SIZE = 40
+STONE_WIDTH = 200
+STONE_HEIGHT = 40
 COIN_SIZE = 30
 MAGNET_SIZE = 35
 SCROLL_SPEED = 3
 PLAYER_SPEED = 5
-STONE_SPAWN_RATE = 40  # Lower is more frequent
+STONE_SPAWN_RATE = 60  # Lower is more frequent
 COIN_SPAWN_RATE = 80   # Lower is more frequent
 MAGNET_SPAWN_RATE = 300  # Lower is more frequent
 MAGNET_DURATION = 5  # seconds
@@ -57,10 +58,10 @@ except pygame.error:
 
 try:
     stone_img = load_image('stone.png')
-    stone_img = pygame.transform.scale(stone_img, (STONE_SIZE, STONE_SIZE))
+    stone_img = pygame.transform.scale(stone_img, (STONE_WIDTH, STONE_HEIGHT))
 except pygame.error:
     # Fallback to colored rectangle if image not found
-    stone_img = pygame.Surface((STONE_SIZE, STONE_SIZE))
+    stone_img = pygame.Surface((STONE_WIDTH, STONE_HEIGHT))
     stone_img.fill(RED)
     print("Warning: Could not load stone.png, using placeholder")
 
@@ -108,6 +109,9 @@ class Boat:
         self.y = WINDOW_HEIGHT // 2 + 50
         self.speed = PLAYER_SPEED
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        self.health = 3
+        self.invulnerable_time = 0
+        self.crash_effect_time = 0
         
     def move(self, direction):
         if direction == 'left' and self.x > 0:
@@ -115,14 +119,22 @@ class Boat:
         if direction == 'right' and self.x < WINDOW_WIDTH - self.width:
             self.x += self.speed
         self.rect.x = self.x
+    
+    def take_damage(self):
+        if time.time() > self.invulnerable_time:
+            self.health -= 1
+            self.invulnerable_time = time.time() + 1  # 1 second invulnerability
+            self.crash_effect_time = time.time() + 0.3  # 0.3 second crash effect
+            return True
+        return False
         
     def draw(self):
         window.blit(boat_img, (self.x, self.y))
 
 class Stone:
     def __init__(self):
-        self.width = STONE_SIZE
-        self.height = STONE_SIZE
+        self.width = STONE_WIDTH
+        self.height = STONE_HEIGHT
         self.x = random.randint(0, WINDOW_WIDTH - self.width)
         self.y = -self.height
         self.speed = SCROLL_SPEED
@@ -179,9 +191,26 @@ class Magnet:
     def draw(self):
         window.blit(magnet_img, (self.x, self.y))
 
+class Particle:
+    def __init__(self):
+        self.x = random.randint(0, WINDOW_WIDTH)
+        self.y = random.randint(0, WINDOW_HEIGHT)
+        self.speed = random.uniform(0.5, 2)
+        self.size = random.randint(1, 3)
+        
+    def update(self):
+        self.y += self.speed
+        if self.y > WINDOW_HEIGHT:
+            self.y = -5
+            self.x = random.randint(0, WINDOW_WIDTH)
+            
+    def draw(self):
+        pygame.draw.circle(window, WHITE, (int(self.x), int(self.y)), self.size)
+
 def show_start_screen():
     # Animation variables
     start_time = pygame.time.get_ticks()
+    particles = [Particle() for _ in range(20)]
     
     waiting = True
     while waiting:
@@ -195,6 +224,10 @@ def show_start_screen():
                 sys.exit()
             if event.type == KEYDOWN and event.key == K_SPACE:
                 waiting = False
+        
+        # Update particles
+        for particle in particles:
+            particle.update()
         
         # Draw background - same as the main game and end screen
         if has_background:
@@ -214,15 +247,19 @@ def show_start_screen():
                                 (line_x, y_pos), 
                                 (line_x + line_width, y_pos), 2)
         
-        # Draw a semi-transparent overlay for better text visibility
+        # Add dark overlay for night winter ocean feel
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 50, 120))
+        overlay.fill((0, 0, 0, 180))
         window.blit(overlay, (0, 0))
         
-        # Draw title with enhanced styling
-        title_bg = pygame.Surface((500, 100), pygame.SRCALPHA)
-        title_bg.fill((0, 0, 80, 150))
-        window.blit(title_bg, (WINDOW_WIDTH//2 - 250, WINDOW_HEIGHT//4 - 20))
+        # Draw particles on top of overlay
+        for particle in particles:
+            particle.draw()
+        
+        # Draw title at top center
+        title_bg = pygame.Surface((600, 80), pygame.SRCALPHA)
+        title_bg.fill((20, 20, 40, 200))
+        window.blit(title_bg, (WINDOW_WIDTH//2 - 300, 50))
         
         # Draw title with shadow effect
         title_shadow = big_font.render('River Adventure', True, BLACK)
@@ -233,100 +270,69 @@ def show_start_screen():
         
         # Draw shadow slightly offset
         window.blit(title_shadow, (WINDOW_WIDTH//2 - title_shadow.get_width()//2 + 2, 
-                                  WINDOW_HEIGHT//4 + 2 + title_y_offset))
+                                  70 + 2 + title_y_offset))
         # Draw main title
         window.blit(title_text, (WINDOW_WIDTH//2 - title_text.get_width()//2, 
-                                WINDOW_HEIGHT//4 + title_y_offset))
+                                70 + title_y_offset))
         
-        # Draw one large coin near the title
-        big_coin_size = COIN_SIZE * 2  # Double the normal coin size
-        big_coin_x = WINDOW_WIDTH//2 + 220  # Position to the right of the title
-        big_coin_y = WINDOW_HEIGHT//4 - 10 + math.sin(elapsed * 2) * 5  # Slight animation
+
         
-        if 'coin_img' in globals():
-            # Create a larger version of the coin image
-            big_coin = pygame.transform.scale(coin_img, (big_coin_size, big_coin_size))
-            window.blit(big_coin, (big_coin_x, big_coin_y))
-        else:
-            pygame.draw.circle(window, YELLOW, 
-                              (int(big_coin_x + big_coin_size/2), int(big_coin_y + big_coin_size/2)), 
-                              big_coin_size//2)
-        
-        # Create pulsing "Press SPACE to start" text
-        pulse_value = (math.sin(elapsed * 3) + 1) / 2  # Value between 0 and 1
-        
-        # Use yellow (coin color) for the pulsing text with varying brightness
+        # Create pulsing "Press SPACE to start" text at bottom
+        pulse_value = (math.sin(elapsed * 3) + 1) / 2
         pulse_color = (
-            YELLOW[0],
-            max(100, int(YELLOW[1] * pulse_value)),
-            max(0, int(50 * pulse_value))
+            int(200 + 55 * pulse_value),
+            int(200 + 55 * pulse_value),
+            int(255 * pulse_value)
         )
         
         # Create button-like background for the start instruction
         start_bg = pygame.Surface((350, 50), pygame.SRCALPHA)
-        start_bg.fill((0, 0, 100, 150 + int(pulse_value * 50)))
-        window.blit(start_bg, (WINDOW_WIDTH//2 - 175, WINDOW_HEIGHT//2 - 10))
+        start_bg.fill((10, 10, 30, 180 + int(pulse_value * 50)))
+        window.blit(start_bg, (WINDOW_WIDTH//2 - 175, WINDOW_HEIGHT - 120))
         
         # Draw pulsing border around the start button
         pygame.draw.rect(window, pulse_color, 
-                        (WINDOW_WIDTH//2 - 175, WINDOW_HEIGHT//2 - 10, 350, 50), 
-                        2)
+                        (WINDOW_WIDTH//2 - 175, WINDOW_HEIGHT - 120, 350, 50), 2)
         
         instructions = font.render('Press SPACE to Start', True, pulse_color)
         window.blit(instructions, (WINDOW_WIDTH//2 - instructions.get_width()//2, 
-                                  WINDOW_HEIGHT//2))
+                                  WINDOW_HEIGHT - 110))
         
         # Draw styled control instructions
-        controls_bg = pygame.Surface((500, 50), pygame.SRCALPHA)
-        controls_bg.fill((0, 0, 0, 150))
-        window.blit(controls_bg, (WINDOW_WIDTH//2 - 250, WINDOW_HEIGHT//2 + 60))
+        controls_bg = pygame.Surface((500, 40), pygame.SRCALPHA)
+        controls_bg.fill((10, 10, 20, 180))
+        window.blit(controls_bg, (WINDOW_WIDTH//2 - 250, WINDOW_HEIGHT - 60))
         
         controls = font.render('Use LEFT and RIGHT arrow keys to move', True, WHITE)
         window.blit(controls, (WINDOW_WIDTH//2 - controls.get_width()//2, 
-                              WINDOW_HEIGHT//2 + 65))
+                              WINDOW_HEIGHT - 50))
         
-        # Draw animated boat at the bottom
+        # Draw animated boat in center
         boat_x = WINDOW_WIDTH//2 - BOAT_WIDTH//2
-        boat_y = WINDOW_HEIGHT - 150 + math.sin(elapsed * 2) * 5  # Gentle bobbing motion
+        boat_y = WINDOW_HEIGHT//2 + math.sin(elapsed * 2) * 8
         
         if 'boat_img' in globals():
             window.blit(boat_img, (boat_x, boat_y))
         else:
             pygame.draw.rect(window, BLUE, (boat_x, boat_y, BOAT_WIDTH, BOAT_HEIGHT))
         
-        # Draw 3 additional coins of different sizes (total 4 coins including the big one)
-        coin_sizes = [int(COIN_SIZE * 0.7), COIN_SIZE, int(COIN_SIZE * 1.3)]  # Different sizes
+        # Draw coins around the boat
         coin_positions = [
-            (150, WINDOW_HEIGHT - 250),
-            (300, WINDOW_HEIGHT - 200),
-            (500, WINDOW_HEIGHT - 230)
+            (WINDOW_WIDTH//2 - 150, WINDOW_HEIGHT//2 - 80, COIN_SIZE),
+            (WINDOW_WIDTH//2 + 120, WINDOW_HEIGHT//2 - 60, COIN_SIZE * 1.5),
+            (WINDOW_WIDTH//2 - 100, WINDOW_HEIGHT//2 + 100, COIN_SIZE * 1.2)
         ]
         
-        for i, (x_pos, y_pos) in enumerate(coin_positions):
-            # Add some animation
-            y_pos += math.sin(elapsed * 2 + i) * 10
-            
-            # Use the size for this coin
-            size = coin_sizes[i]
+        for i, (x_pos, y_pos, size) in enumerate(coin_positions):
+            y_pos += math.sin(elapsed * 2 + i) * 8
             
             if 'coin_img' in globals():
-                # Scale the coin image to the current size
-                scaled_coin = pygame.transform.scale(coin_img, (size, size))
+                scaled_coin = pygame.transform.scale(coin_img, (int(size), int(size)))
                 window.blit(scaled_coin, (x_pos, y_pos))
             else:
-                pygame.draw.circle(window, YELLOW, 
-                                  (int(x_pos + size/2), int(y_pos + size/2)), 
-                                  size//2)
+                pygame.draw.circle(window, YELLOW, (int(x_pos + size/2), int(y_pos + size/2)), int(size//2))
         
-        # Draw some stones (obstacles) moving down
-        for i in range(3):
-            x_pos = 150 + i * 200
-            y_pos = (elapsed * 40 + i * 100) % WINDOW_HEIGHT
-            
-            if 'stone_img' in globals():
-                window.blit(stone_img, (x_pos, y_pos))
-            else:
-                pygame.draw.rect(window, RED, (x_pos, y_pos, STONE_SIZE, STONE_SIZE))
+
         
         pygame.display.update()
         clock.tick(60)  # Cap the frame rate
@@ -411,21 +417,16 @@ def show_game_over(score):
         
         # Draw some game elements in the background
         
-        # Draw some stones scattered around
-        for i in range(8):
-            x_pos = random.randint(0, WINDOW_WIDTH - STONE_SIZE)
-            y_pos = random.randint(0, WINDOW_HEIGHT - STONE_SIZE)
-            stone_alpha = random.randint(30, 100)
+        # Draw twinkling particles
+        for i in range(50):
+            x_pos = random.randint(0, WINDOW_WIDTH)
+            y_pos = random.randint(0, WINDOW_HEIGHT)
+            particle_alpha = random.randint(50, 200)
+            particle_size = random.randint(1, 4)
             
-            # Create a transparent version of the stone
-            if 'stone_img' in globals():
-                stone_copy = stone_img.copy()
-                stone_copy.set_alpha(stone_alpha)
-                window.blit(stone_copy, (x_pos, y_pos))
-            else:
-                stone_surface = pygame.Surface((STONE_SIZE, STONE_SIZE), pygame.SRCALPHA)
-                stone_surface.fill((RED[0], RED[1], RED[2], stone_alpha))
-                window.blit(stone_surface, (x_pos, y_pos))
+            particle_surface = pygame.Surface((particle_size * 2, particle_size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(particle_surface, (255, 255, 255, particle_alpha), (particle_size, particle_size), particle_size)
+            window.blit(particle_surface, (x_pos, y_pos))
         
         pygame.display.update()
         clock.tick(60)
@@ -439,10 +440,13 @@ def main():
         stones = []
         coins = []
         magnets = []
+        particles = [Particle() for _ in range(30)]
         score = 0
         magnet_active = False
         magnet_end_time = 0
         game_over = False
+        screen_shake = 0
+        last_stone_spawn = 0
         
         # Main game loop
         while not game_over:
@@ -451,6 +455,7 @@ def main():
                 if event.type == QUIT:
                     pygame.quit()
                     sys.exit()
+
             
             # Get key presses
             keys = pygame.key.get_pressed()
@@ -465,7 +470,15 @@ def main():
             
             # Spawn objects
             if random.randint(1, STONE_SPAWN_RATE) == 1:
-                stones.append(Stone())
+                new_stone = Stone()
+                # Check horizontal spacing to avoid clustering
+                can_spawn = True
+                for existing_stone in stones:
+                    if existing_stone.y < 150 and abs(existing_stone.x - new_stone.x) < 250:
+                        can_spawn = False
+                        break
+                if can_spawn:
+                    stones.append(new_stone)
                 
             if random.randint(1, COIN_SPAWN_RATE) == 1:
                 coins.append(Coin())
@@ -474,13 +487,20 @@ def main():
                 magnets.append(Magnet())
             
             # Update objects
+            for particle in particles:
+                particle.update()
+                
             for stone in stones[:]:
                 stone.update()
                 # Check collision with boat
                 if stone.rect.colliderect(boat.rect):
-                    game_over = True
+                    if boat.take_damage():
+                        stones.remove(stone)
+                        screen_shake = 10
+                        if boat.health <= 0:
+                            game_over = True
                 # Remove if off screen
-                if stone.y > WINDOW_HEIGHT:
+                elif stone.y > WINDOW_HEIGHT:
                     stones.remove(stone)
             
             for coin in coins[:]:
@@ -504,6 +524,11 @@ def main():
                 elif magnet.y > WINDOW_HEIGHT:
                     magnets.remove(magnet)
             
+            # Apply screen shake
+            shake_x = random.randint(-screen_shake, screen_shake) if screen_shake > 0 else 0
+            shake_y = random.randint(-screen_shake, screen_shake) if screen_shake > 0 else 0
+            screen_shake = max(0, screen_shake - 1)
+            
             # Draw everything
             window.fill(BLACK)
             
@@ -514,27 +539,45 @@ def main():
                     for x in range(0, WINDOW_WIDTH, background_width):
                         window.blit(background_img, (x, y))
             else:
-                # Simple blue rectangle as water background
-                pygame.draw.rect(window, (0, 0, 100), (0, 0, WINDOW_WIDTH, WINDOW_HEIGHT))
+                # Blue background as water
+                window.fill(BLUE)
             
-            # Draw objects
-            boat.draw()
+            # Add dark overlay for night winter ocean feel
+            overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            window.blit(overlay, (0, 0))
+            
+            # Draw particles on top of overlay
+            for particle in particles:
+                particle.draw()
+                
+            # Draw objects with shake effect
+            window.blit(boat_img, (boat.x + shake_x, boat.y + shake_y))
             for stone in stones:
-                stone.draw()
+                window.blit(stone_img, (stone.x + shake_x, stone.y + shake_y))
             for coin in coins:
-                coin.draw()
+                window.blit(coin_img, (coin.x + shake_x, coin.y + shake_y))
             for magnet in magnets:
-                magnet.draw()
+                window.blit(magnet_img, (magnet.x + shake_x, magnet.y + shake_y))
             
-            # Draw score
+            # Draw crash effect (red flash)
+            if time.time() < boat.crash_effect_time:
+                crash_overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
+                crash_overlay.fill((255, 0, 0, 100))
+                window.blit(crash_overlay, (0, 0))
+            
+            # Draw score and health
             score_text = font.render(f'Score: {score}', True, WHITE)
             window.blit(score_text, (10, 10))
+            
+            health_text = font.render(f'Health: {boat.health}', True, RED)
+            window.blit(health_text, (10, 50))
             
             # Draw magnet timer if active
             if magnet_active:
                 time_left = int(magnet_end_time - time.time())
                 magnet_text = font.render(f'Magnet: {time_left}s', True, GREEN)
-                window.blit(magnet_text, (10, 50))
+                window.blit(magnet_text, (10, 90))
             
             pygame.display.update()
             clock.tick(FPS)
